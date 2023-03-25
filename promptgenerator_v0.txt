@@ -1,0 +1,114 @@
+import openai
+
+def create_prompt(prompt_type, parameters):
+    prompt = ""
+    if prompt_type == "SpecificQuestion":
+        prompt = f"{parameters['item']}、これはなんですか?"
+    elif prompt_type == "Comparison":
+        items = parameters['items']
+        prompt = f"{', '.join(items[:-1])}と{items[-1]}の違いはなんですか?"
+    elif prompt_type == "Solution":
+        prompt = f"{parameters['problem']}、これを解決するにはどのようなことが考えられますか?"
+    elif prompt_type == "StepByStep":
+        prompt = f"{parameters['process']}、これの手順を教えてください。"
+    elif prompt_type == "Opinion":
+        prompt = f"{parameters['topic']}、これついてあなたの意見を教えてください。"
+    elif prompt_type == "CreativeIdea":
+        prompt = f"{parameters['subject']}、これの未来について想像し教えてください。"
+    elif prompt_type == "Hypothetical":
+        prompt = f"{parameters['condition']}、これを仮定したらどうなりますか?"
+    return prompt
+
+def ask_for_additional_info(initial_prompt, n=3):
+    additional_info_prompts = []
+    for i in range(n):
+        prompt = (
+            f"{initial_prompt}を、より具体的な文言となるように情報を追加する必要があります。"
+            f"このため、{initial_prompt}入力者に対して入力者自身が{initial_prompt}に対して"
+            f"より具体的になぜこの{initial_prompt}を作成したのか彼らの内面にある潜在的な要件を"
+            f"引き出すための深掘り質問を異なる側面から {i+1} 個生成してください。"
+            f"深掘り質問の例を幾つか提示します。{initial_prompt}を知りたいと思った理由はなんですか？"
+            f"{initial_prompt}は人々にとってどのような影響があると考えますか？"
+            f"{initial_prompt}はこれから先の未来にどのような変化をもたらすと考えますか？"
+            f"{initial_prompt}は、そもそも人間がGPTのような対話型AIとコミュニケーションすることを用意にするためのデザインパターンから導き出されています。"
+            f"そのデザインパターンは、create_prompt(prompt_type, parameters)で作り出され、簡単な質問から始まるので深掘り質問は特にprompt_typeの値によって適切に変化させる必要があります"
+            f"例示した深掘り質問形式は、SpecificQuestionのprompt_typeの例であり、これはある物事に対する素朴なwhat is this?質問です。"
+            f"prompt_typeを吟味して、入力者がなぜそれを入力したのかの真意を類推しながら深掘り質問を出力してください。"
+        )
+        response = generate_text_with_gpt(prompt)
+        additional_info_prompts.append(response)
+    return additional_info_prompts
+
+def refine_prompt(initial_prompt, user_responses):
+    # プロンプトをブラッシュアップする関数
+    secondary_prompt = initial_prompt + " "
+    for i, response in enumerate(user_responses):
+        if i == 0:
+            secondary_prompt += f"また、{response}。"
+        elif i < len(user_responses) - 1:
+            secondary_prompt += f"さらに、{response}。"
+        else:
+            secondary_prompt += f"最後に、{response}。"
+    
+    # ハードコーディングを避けるために、GPTに最後の質問文を生成させる
+    final_question_prompt = f"これらの情報を踏まえた上で、{initial_prompt}についてどのように考えられますか？"
+    final_question = generate_text_with_gpt(final_question_prompt)
+    
+    secondary_prompt += final_question
+
+    response = openai.Completion.create(engine="text-davinci-002", prompt=secondary_prompt, max_tokens=50, n=1, stop=None, temperature=0.5)['choices'][0]['text']
+    
+    return response.strip()
+
+def collect_user_responses(prompts):
+    user_responses = []
+    for prompt in prompts:
+        print(prompt)
+        user_response = input("Your response: ")
+        user_responses.append(user_response)
+    return user_responses
+
+def generate_text_with_gpt(prompt):
+    response = openai.Completion.create(engine="text-davinci-002", prompt=prompt, max_tokens=50, n=1, stop=None, temperature=0.5)['choices'][0]['text']
+    return response.strip()
+
+    # GPT-4インスタンスを作成
+def main():
+    # GPT-4インスタンスを作成
+    api_key = os.environ.get("OPENAI_API_KEY")
+    openai.api_key = api_key
+
+    # プロンプトタイプとパラメータをユーザーから受け取る
+    prompt_type = input("デザインパターンから選択したprompt_typeを入力してください。")
+    parameters_input = input("選択したprompt_typeのサンプルを参照し具体的な値を入力してください。")
+
+    # パラメータを辞書に変換
+    parameters = {}
+    for pair in parameters_input.split(','):
+        key, value = pair.strip().split(':')
+        parameters[key.strip()] = value.strip()
+
+    # イニシャルプロンプトを生成
+    initial_prompt = create_prompt(prompt_type, parameters)
+
+    threshold = 0.7
+    user_score = 0
+    while user_score < threshold:
+        # 追加情報を要求するプロンプトを生成
+        additional_info_prompts = ask_for_additional_info(initial_prompt)
+
+        # ユーザーの追加情報を収集
+        user_responses = collect_user_responses(additional_info_prompts)
+
+        # プロンプトをブラッシュアップ
+        refined_prompt = refine_prompt(initial_prompt, user_responses)
+
+        # ユーザーにスコアを入力させる
+        user_score = float(input(f"ブラッシュアップしたプロンプトを0~1の間で評点してください。: {refined_prompt}\nYour score: "))
+
+    # スコアが閾値を超えた場合、確定プロンプトをGPT-4に渡す
+    answer = openai.Completion.create(engine="text-davinci-002", prompt=refined_prompt, max_tokens=50, n=1, stop=None, temperature=0.5)['choices'][0]['text']
+    print(answer.strip())
+
+if __name__ == "__main__":
+    main()
